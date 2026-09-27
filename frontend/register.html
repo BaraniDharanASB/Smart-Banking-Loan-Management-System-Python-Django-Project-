@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Customer Registration - Smart Banking System</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="navbar-container"></div>
+
+  <div class="auth-wrapper" style="padding: 2rem 0;">
+    <div class="auth-box">
+      <h2 class="auth-title">Customer Registration</h2>
+
+      <div id="reg-alert" class="alert"></div>
+
+      <form id="register-form">
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input type="text" id="username" class="form-control" required placeholder="Choose a username">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email Address</label>
+          <input type="email" id="email" class="form-control" required placeholder="name@example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">First Name</label>
+          <input type="text" id="first_name" class="form-control" required placeholder="First Name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Last Name</label>
+          <input type="text" id="last_name" class="form-control" required placeholder="Last Name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="password" class="form-control" required placeholder="Password (min 6 chars)">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">Register Account</button>
+      </form>
+
+      <p style="text-align: center; margin-top: 1.5rem; color: var(--text-muted); font-size: 0.9rem;">
+        Already have an account? <a href="login.html" style="color: var(--accent-color); font-weight: 600;">Login here</a>
+      </p>
+    </div>
+  </div>
+
+  <script src="js/auth.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const regForm = document.getElementById('register-form');
+      const alertBox = document.getElementById('reg-alert');
+
+      regForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        alertBox.style.display = 'none';
+
+        const payload = {
+          username: document.getElementById('username').value,
+          email: document.getElementById('email').value,
+          first_name: document.getElementById('first_name').value,
+          last_name: document.getElementById('last_name').value,
+          password: document.getElementById('password').value
+        };
+
+        try {
+          const res = await fetch(`${API_BASE_URL}/auth/register/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (res.status === 201) {
+            alertBox.className = 'alert alert-success';
+            alertBox.textContent = 'Registration successful! Redirecting to login...';
+            alertBox.style.display = 'block';
+            setTimeout(() => {
+              window.location.href = 'login.html';
+            }, 1500);
+          } else {
+            const err = await res.json();
+            alertBox.className = 'alert alert-danger';
+            alertBox.textContent = JSON.stringify(err);
+            alertBox.style.display = 'block';
+          }
+        } catch (err) {
+          alertBox.className = 'alert alert-danger';
+          alertBox.textContent = 'Network error connecting to API.';
+          alertBox.style.display = 'block';
+        }
+      });
+    });
+  </script>
+</body>
+</html>
