@@ -4,11 +4,13 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from customers.models import Customer
-from .models import Loan
+from .models import Loan, LoanRepayment
+from .services import calculate_emi_details, generate_repayment_schedule
 from .serializers import (
     LoanApplicationSerializer,
     LoanRejectSerializer,
-    LoanDetailSerializer
+    LoanDetailSerializer,
+    LoanRepaymentSerializer
 )
 
 @api_view(['GET', 'POST'])
@@ -96,6 +98,7 @@ def loan_approve(request, pk):
     POST: Approve a pending loan application.
           - Only EMPLOYEE or ADMIN users can approve loans.
           - Only PENDING loans can be approved.
+          - Automatically generates the monthly repayment schedule.
     """
     user = request.user
 
@@ -119,6 +122,9 @@ def loan_approve(request, pk):
     loan.status = Loan.LoanStatus.APPROVED
     loan.approved_date = timezone.now()
     loan.save()
+
+    # Automatically generate repayment schedule for the approved loan
+    generate_repayment_schedule(loan)
 
     return Response({
         'message': 'Loan approved successfully',
@@ -166,4 +172,139 @@ def loan_reject(request, pk):
     return Response({
         'message': 'Loan rejected successfully',
         'loan': LoanDetailSerializer(loan).data
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def loan_emi_view(request, pk):
+    """
+    GET: View EMI calculation details for an APPROVED or CLOSED loan.
+    """
+    user = request.user
+    try:
+        loan = Loan.objects.get(pk=pk)
+    except Loan.DoesNotExist:
+        return Response({'detail': 'Loan not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if user.role not in ['ADMIN', 'EMPLOYEE'] and not user.is_staff:
+        try:
+            customer = user.customer_profile
+            if loan.customer != customer:
+                return Response(
+                    {'detail': 'You do not have permission to view EMI for this loan.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        except Customer.DoesNotExist:
+            return Response(
+                {'detail': 'Customer profile not found.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+    if loan.status not in [Loan.LoanStatus.APPROVED, Loan.LoanStatus.CLOSED]:
+        return Response(
+            {'detail': 'EMI calculations are available only for APPROVED or CLOSED loans.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    emi_details = calculate_emi_details(loan.amount, loan.interest_rate, loan.tenure_months)
+
+    return Response({
+        'loan_id': loan.loan_id,
+        'principal': str(loan.amount),
+        'interest_rate': str(loan.interest_rate),
+        'tenure_months': loan.tenure_months,
+        'monthly_emi': str(emi_details['monthly_emi']),
+        'total_payment': str(emi_details['total_payment']),
+        'total_interest': str(emi_details['total_interest'])
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def loan_repayments_list(request, pk):
+    """
+    GET: View repayment schedule for a loan.
+    """
+    user = request.user
+    try:
+        loan = Loan.objects.get(pk=pk)
+    except Loan.DoesNotExist:
+        return Response({'detail': 'Loan not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if user.role not in ['ADMIN', 'EMPLOYEE'] and not user.is_staff:
+        try:
+            customer = user.customer_profile
+            if loan.customer != customer:
+                return Response(
+                    {'detail': 'You do not have permission to view repayments for this loan.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        except Customer.DoesNotExist:
+            return Response(
+                {'detail': 'Customer profile not found.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+    repayments = loan.repayments.all().order_by('installment_number')
+    serializer = LoanRepaymentSerializer(repayments, many=True)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def loan_repayment_pay(request, pk, repayment_pk):
+    """
+    POST: Pay a specific loan repayment installment.
+    Automated check: If all installments are paid, loan status automatically becomes CLOSED.
+    """
+    user = request.user
+    try:
+        loan = Loan.objects.get(pk=pk)
+    except Loan.DoesNotExist:
+        return Response({'detail': 'Loan not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if user.role not in ['ADMIN', 'EMPLOYEE'] and not user.is_staff:
+        try:
+            customer = user.customer_profile
+            if loan.customer != customer:
+                return Response(
+                    {'detail': 'You do not have permission to pay for this loan.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        except Customer.DoesNotExist:
+            return Response(
+                {'detail': 'Customer profile not found.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+    try:
+        repayment = LoanRepayment.objects.get(pk=repayment_pk, loan=loan)
+    except LoanRepayment.DoesNotExist:
+        return Response(
+            {'detail': 'Repayment installment not found for this loan.'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    if repayment.status == LoanRepayment.RepaymentStatus.PAID:
+        return Response(
+            {'detail': 'Repayment has already been paid.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    repayment.paid_amount = repayment.amount
+    repayment.paid_date = timezone.now()
+    repayment.status = LoanRepayment.RepaymentStatus.PAID
+    repayment.save()
+
+    # Check if all installments for this loan are now PAID
+    remaining_pending = loan.repayments.exclude(status=LoanRepayment.RepaymentStatus.PAID).count()
+    if remaining_pending == 0:
+        loan.status = Loan.LoanStatus.CLOSED
+        loan.save()
+
+    return Response({
+        'message': 'Repayment paid successfully',
+        'repayment': LoanRepaymentSerializer(repayment).data,
+        'loan_status': loan.status
     }, status=status.HTTP_200_OK)

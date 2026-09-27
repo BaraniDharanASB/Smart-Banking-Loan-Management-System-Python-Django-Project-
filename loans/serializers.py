@@ -1,6 +1,6 @@
 from decimal import Decimal
 from rest_framework import serializers
-from .models import Loan
+from .models import Loan, LoanRepayment
 
 class LoanApplicationSerializer(serializers.ModelSerializer):
     class Meta:
@@ -37,6 +37,27 @@ class LoanDetailSerializer(serializers.ModelSerializer):
             'application_date',
             'approved_date',
             'rejection_reason',
+            'created_at',
+            'updated_at'
+        ]
+        read_only_fields = fields
+
+
+class LoanRepaymentSerializer(serializers.ModelSerializer):
+    loan_id = serializers.ReadOnlyField(source='loan.loan_id')
+
+    class Meta:
+        model = LoanRepayment
+        fields = [
+            'id',
+            'repayment_id',
+            'loan_id',
+            'installment_number',
+            'due_date',
+            'amount',
+            'paid_amount',
+            'status',
+            'paid_date',
             'created_at',
             'updated_at'
         ]
