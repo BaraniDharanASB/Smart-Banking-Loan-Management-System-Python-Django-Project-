@@ -1,0 +1,28 @@
+# Environment variables
+.env
+
+# Python & Virtual Environments
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# Database & Local files
+*.sqlite3
+db.sqlite3
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
